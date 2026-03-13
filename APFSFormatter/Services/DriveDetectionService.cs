@@ -7,6 +7,7 @@ namespace APFSFormatter.Services;
 /// Detects removable USB drives connected to the system using WMI.
 /// </summary>
 public class DriveDetectionService
+    : IDriveLetterResolver
 {
     /// <summary>
     /// Returns a list of removable USB drives currently connected to the system.
@@ -29,7 +30,7 @@ public class DriveDetectionService
                 int diskIndex = disk["Index"] != null ? Convert.ToInt32(disk["Index"]) : -1;
 
                 // Find the drive letter associated with this physical disk
-                string driveLetter = GetDriveLetterForDisk(deviceId);
+                string driveLetter = GetDriveLetterForDisk(deviceId, diskIndex);
 
                 drives.Add(new UsbDriveInfo
                 {
@@ -63,7 +64,7 @@ public class DriveDetectionService
     /// <summary>
     /// Resolves the Windows drive letter (e.g., "E:") for a given physical disk device ID.
     /// </summary>
-    private static string GetDriveLetterForDisk(string deviceId)
+    private static string GetDriveLetterForDisk(string deviceId, int diskIndex)
     {
         try
         {
@@ -89,6 +90,48 @@ public class DriveDetectionService
         catch (ManagementException)
         {
             // Drive letter lookup is best-effort; not critical
+        }
+
+        string storageDriveLetter = GetDriveLetterFromStoragePartitionProvider(diskIndex);
+        if (!string.IsNullOrEmpty(storageDriveLetter))
+            return storageDriveLetter;
+
+        return string.Empty;
+    }
+
+    private static string GetDriveLetterFromStoragePartitionProvider(int diskIndex)
+    {
+        if (diskIndex < 0)
+            return string.Empty;
+
+        try
+        {
+            var scope = new ManagementScope(@"\\.\ROOT\Microsoft\Windows\Storage");
+            scope.Connect();
+
+            using var searcher = new ManagementObjectSearcher(
+                scope,
+                new ObjectQuery(
+                    $"SELECT DiskNumber, DriveLetter FROM MSFT_Partition WHERE DiskNumber = {diskIndex}"));
+
+            foreach (ManagementObject partition in searcher.Get())
+            {
+                string? driveLetter = partition["DriveLetter"]?.ToString();
+                if (string.IsNullOrWhiteSpace(driveLetter))
+                    continue;
+
+                return driveLetter.EndsWith(":", StringComparison.Ordinal)
+                    ? driveLetter
+                    : driveLetter + ":";
+            }
+        }
+        catch (ManagementException)
+        {
+            // Storage provider lookup is best-effort; not critical
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Some environments may restrict access to the storage provider namespace.
         }
 
         return string.Empty;

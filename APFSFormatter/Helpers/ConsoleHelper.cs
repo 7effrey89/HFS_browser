@@ -7,6 +7,12 @@ namespace APFSFormatter.Helpers;
 /// </summary>
 public static class ConsoleHelper
 {
+    public enum OperationMode
+    {
+        Browse = 1,
+        Format = 2
+    }
+
     public static void WriteHeader()
     {
         Console.Clear();
@@ -90,6 +96,45 @@ public static class ConsoleHelper
         Console.ResetColor();
     }
 
+    public static void WriteListItem(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"    - {message}");
+        Console.ResetColor();
+    }
+
+    public static void WriteIndexedListItem(int index, string message)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"    [{index}] {message}");
+        Console.ResetColor();
+    }
+
+    public static OperationMode? PromptOperationMode()
+    {
+        WriteInfo("  Choose an action:");
+        WriteInfo("    [1] Browse a USB drive");
+        WriteInfo("    [2] Format a USB drive as APFS");
+        Console.WriteLine();
+
+        while (true)
+        {
+            Console.Write("  Enter your choice (1-2, or 0 to exit): ");
+            string? input = Console.ReadLine()?.Trim();
+
+            if (input == "0" || string.IsNullOrWhiteSpace(input))
+                return null;
+
+            if (input == "1")
+                return OperationMode.Browse;
+
+            if (input == "2")
+                return OperationMode.Format;
+
+            WriteWarning("Invalid selection. Please enter 1, 2, or 0 to exit.");
+        }
+    }
+
     /// <summary>
     /// Prompts the user to confirm a destructive operation by typing the exact drive label.
     /// </summary>
@@ -115,11 +160,11 @@ public static class ConsoleHelper
     /// Prompts the user to select a drive from the list.
     /// Returns the selected drive, or null if the user cancels.
     /// </summary>
-    public static UsbDriveInfo? PromptDriveSelection(List<UsbDriveInfo> drives)
+    public static UsbDriveInfo? PromptDriveSelection(List<UsbDriveInfo> drives, string actionDescription)
     {
         while (true)
         {
-            Console.Write("  Enter the number of the drive to format (or 0 to exit): ");
+            Console.Write($"  Enter the number of the drive to {actionDescription} (or 0 to exit): ");
             string? input = Console.ReadLine();
 
             if (input == "0" || string.IsNullOrWhiteSpace(input))
@@ -141,5 +186,30 @@ public static class ConsoleHelper
         Console.Write("  Enter volume label (default: APFS): ");
         string? label = Console.ReadLine()?.Trim();
         return string.IsNullOrEmpty(label) ? "APFS" : label;
+    }
+
+    public static bool PromptCopyFromBrowseResult()
+    {
+        Console.Write("  Copy one of the listed files to C:\\Temp? (y/N): ");
+        string? input = Console.ReadLine()?.Trim();
+        return string.Equals(input, "y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(input, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static int? PromptFileSelection(IReadOnlyList<BrowseFileEntry> files)
+    {
+        while (true)
+        {
+            Console.Write("  Enter the number of the file to copy (or 0 to cancel): ");
+            string? input = Console.ReadLine()?.Trim();
+
+            if (input == "0" || string.IsNullOrWhiteSpace(input))
+                return null;
+
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= files.Count)
+                return choice - 1;
+
+            WriteWarning($"Invalid selection. Please enter a number between 1 and {files.Count}.");
+        }
     }
 }

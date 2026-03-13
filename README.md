@@ -5,12 +5,16 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 ## Features
 
 - **Detects all removable USB drives** connected to the system using WMI
+- **Choose browse or format mode at startup** depending on whether you want to inspect or initialize a USB drive
 - **Interactive drive selection** with a numbered menu
 - **Customizable volume label** (default: `APFS`)
 - **Safety confirmation** — requires typing `YES` before any data is erased
 - **Full APFS preparation in two steps**:
   1. Cleans the drive and creates a GPT partition with the Apple APFS partition type GUID (`7C3457EF-0000-11AA-AA11-00306543ECAC`) using Windows `diskpart`
-  2. Writes a valid APFS container superblock (with Fletcher64 checksum) directly to the drive
+  2. Writes a minimal valid APFS container superblock (with Fletcher64 checksum) directly to the drive
+- **Read-only browse check** — attempts to enumerate top-level folders and files when Windows exposes the formatted volume through an APFS driver
+- **Read-only HFS+ browse fallback** — attempts raw root listing for HFS+/HFSX USB volumes when Windows assigns a drive letter but cannot mount the filesystem normally
+- **Optional HFS+ root-file copy** — after a successful raw HFS+ root browse, you can choose a listed root-level file and copy it to `C:\Temp`
 - **Colored console UI** with progress indicators
 
 ## Requirements
@@ -22,15 +26,16 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 ## Usage
 
 1. Connect your USB drive.
-2. Open a command prompt or PowerShell **as Administrator**.
+2. Open a command prompt or PowerShell.
 3. Run the application:
    ```
    APFSFormatter.exe
    ```
 4. Follow the on-screen prompts:
-   - Select your USB drive by number
-   - Enter a volume label (or press Enter for the default `APFS`)
-   - Type `YES` to confirm formatting (all existing data will be erased)
+  - Choose whether to browse a USB drive or format one as APFS
+  - Select your USB drive by number
+  - In browse mode, if the drive is parsed as raw HFS+, you can optionally select a copyable root-level file and export it to `C:\Temp`
+  - If you choose format mode, run the app as Administrator, enter a volume label, and type `YES` to confirm formatting
 
 ### Running from Source
 
@@ -43,7 +48,7 @@ dotnet run
 
 ### Running from VS Code
 
-This application requires Administrator privileges for raw disk access. If you see this message:
+Format mode requires Administrator privileges for raw disk access. If you see this message:
 
 ```text
 ✗ This application must be run as Administrator.
@@ -91,13 +96,22 @@ that means the USB drive was already using GPT metadata and an older build of th
 ║     Format your USB drive with Apple APFS format     ║
 ╚══════════════════════════════════════════════════════╝
 
-  [1/3] Scanning for removable USB drives...
+  [1/3] Choose an operation mode...
+
+  Choose an action:
+    [1] Browse a USB drive
+    [2] Format a USB drive as APFS
+
+  Enter your choice (1-2, or 0 to exit): 2
+
+────────────────────────────────────────────────────────
+  [2/3] Scanning for removable USB drives...
 
   Detected USB drives:
     [1] Disk 1: SanDisk Ultra (14.9 GB) [E:]
 
 ────────────────────────────────────────────────────────
-  [2/3] Select the USB drive to format as APFS:
+  [3/3] Select the USB drive to format as APFS:
 
   Enter the number of the drive to format (or 0 to exit): 1
   Enter volume label (default: APFS):
@@ -108,7 +122,7 @@ that means the USB drive was already using GPT metadata and an older build of th
   Type YES to confirm and proceed: YES
 
 ────────────────────────────────────────────────────────
-  [3/3] Formatting drive as APFS...
+  Formatting drive as APFS...
 
   → [1/2] Cleaning disk and creating GPT partition... Done.
   → [2/2] Writing APFS container superblock... Done.
@@ -128,6 +142,10 @@ that means the USB drive was already using GPT metadata and an older build of th
     * Windows cannot natively read or write APFS drives.
       Use a third-party driver (e.g., Paragon APFS) for
       Windows access, or use the drive exclusively on Mac.
+
+  Browse check:
+⚠ Windows did not expose a readable drive letter for the formatted APFS volume.
+    Stock Windows cannot browse APFS. A third-party APFS driver or macOS is required.
 ```
 
 ## Building from Source
@@ -165,13 +183,16 @@ The application writes a minimal valid APFS container superblock (`nx_superblock
 - Valid **Fletcher64 checksum** (APFS variant)
 - Checkpoint descriptor and data area pointers
 
-When the drive is plugged into a Mac, macOS will recognize the APFS container and complete the volume initialization.
+This project currently writes a minimal APFS container seed. It does not implement the full APFS metadata structures required for a fully mountable, browsable APFS volume on Windows.
 
 ## Notes
 
 - **Data loss**: Formatting permanently erases all data. Make sure to back up important files first.
 - **Windows APFS support**: Windows does not natively support APFS. To access an APFS drive on Windows, use a third-party driver such as [Paragon APFS for Windows](https://www.paragon-software.com/home/apfs-windows/).
-- **Administrator required**: Raw disk access requires elevated privileges.
+- **Browsing on Windows**: The app can only list folders and files when Windows exposes the APFS volume through a compatible third-party driver. Without that, the browse check will report that the volume is not readable from Windows.
+- **HFS+ file copy scope**: Raw HFS+ extraction currently supports root-level files whose data fork is fully described by inline catalog extents. Files that require extent-overflow records will be listed as copy unavailable.
+- **Current APFS scope**: The formatter writes a minimal APFS container seed, not a complete APFS volume implementation with object maps, spaceman structures, volume superblocks, and file trees.
+- **Administrator required for formatting**: Browse mode can run without elevation, but format mode requires elevated privileges for raw disk access.
 
 ## License
 

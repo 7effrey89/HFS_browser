@@ -5,8 +5,8 @@ using APFSFormatter.Models;
 namespace APFSFormatter.Services;
 
 /// <summary>
-/// Writes a minimal APFS container superblock to a raw physical disk device,
-/// making the drive recognizable as an APFS-formatted volume by macOS.
+/// Writes a minimal APFS container superblock to a raw physical disk device.
+/// This does not create a full APFS volume tree that Windows can browse natively.
 /// </summary>
 public class ApfsContainerWriter
 {
@@ -182,6 +182,7 @@ public class ApfsContainerWriter
         }
 
         return FormatResult.Ok(
-            $"APFS container superblock written successfully to {devicePath}.");
+            $"APFS container superblock written successfully to {devicePath}. " +
+            "This creates a minimal APFS container seed, not a complete browsable APFS volume.");
     }
 }
