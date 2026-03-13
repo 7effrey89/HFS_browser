@@ -83,7 +83,6 @@ internal class Program
         }
 
         string volumeLabel = ConsoleHelper.PromptVolumeLabel();
-        bool createDummyFile = ConsoleHelper.PromptCreateDummyFile();
 
         if (!ConsoleHelper.ConfirmDestructiveAction(selectedDrive))
         {
@@ -100,15 +99,12 @@ internal class Program
         ConsoleHelper.WriteStep(3, 3, "Formatting drive as APFS...");
         Console.WriteLine();
 
-        var dummyFileService = new DummyFileService(detectionService);
-        return FormatDrive(selectedDrive, volumeLabel, createDummyFile, dummyFileService);
+        return FormatDrive(selectedDrive, volumeLabel);
     }
 
     private static int FormatDrive(
         UsbDriveInfo drive,
-        string volumeLabel,
-        bool createDummyFile,
-        DummyFileService dummyFileService)
+        string volumeLabel)
     {
         const int totalSubSteps = 2;
 
@@ -177,24 +173,6 @@ internal class Program
         ConsoleHelper.WriteInfo("    * Windows cannot natively read or write APFS drives.");
         ConsoleHelper.WriteInfo("      Use a third-party driver (e.g., Paragon APFS) for");
         ConsoleHelper.WriteInfo("      Windows access, or use the drive exclusively on Mac.");
-
-        if (createDummyFile)
-        {
-            Console.WriteLine();
-            ConsoleHelper.WriteProgress("  Attempting to create dummy.txt");
-            FormatResult dummyFileResult = dummyFileService.CreateDummyFile(drive.DiskIndex, volumeLabel);
-
-            if (dummyFileResult.Success)
-            {
-                ConsoleHelper.WriteDone();
-                ConsoleHelper.WriteSuccess(dummyFileResult.Message);
-            }
-            else
-            {
-                ConsoleHelper.WriteFail();
-                ConsoleHelper.WriteWarning(dummyFileResult.Message);
-            }
-        }
 
         Console.WriteLine();
         ConsoleHelper.WriteSeparator();

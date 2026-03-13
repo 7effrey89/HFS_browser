@@ -7,7 +7,6 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 - **Detects all removable USB drives** connected to the system using WMI
 - **Interactive drive selection** with a numbered menu
 - **Customizable volume label** (default: `APFS`)
-- **Optional dummy file creation** — can attempt to create `dummy.txt` after formatting when Windows exposes a writable drive letter
 - **Safety confirmation** — requires typing `YES` before any data is erased
 - **Full APFS preparation in two steps**:
   1. Cleans the drive and creates a GPT partition with the Apple APFS partition type GUID (`7C3457EF-0000-11AA-AA11-00306543ECAC`) using Windows `diskpart`
@@ -23,7 +22,7 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 ## Usage
 
 1. Connect your USB drive.
-2. Open a command prompt **as Administrator**.
+2. Open a command prompt or PowerShell **as Administrator**.
 3. Run the application:
    ```
    APFSFormatter.exe
@@ -31,8 +30,58 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 4. Follow the on-screen prompts:
    - Select your USB drive by number
    - Enter a volume label (or press Enter for the default `APFS`)
-   - Choose whether to attempt creating `dummy.txt` after formatting
    - Type `YES` to confirm formatting (all existing data will be erased)
+
+### Running from Source
+
+If you are running the project from the repository instead of a published executable:
+
+```powershell
+cd APFSFormatter
+dotnet run
+```
+
+### Running from VS Code
+
+This application requires Administrator privileges for raw disk access. If you see this message:
+
+```text
+✗ This application must be run as Administrator.
+  Right-click the executable and choose 'Run as administrator'.
+```
+
+the already-running VS Code terminal cannot be elevated in place. Start a new elevated PowerShell window instead:
+
+```powershell
+Start-Process pwsh -Verb RunAs
+```
+
+Then, in that new Administrator PowerShell window, run the project from the repository root:
+
+```powershell
+cd c:\Git\APFS-USB-Formatter\APFS-USB-Formatter
+dotnet run --project APFSFormatter\APFSFormatter.csproj
+```
+
+If you already built the project and want to run the executable directly:
+
+```powershell
+cd c:\Git\APFS-USB-Formatter\APFS-USB-Formatter
+Start-Process .\APFSFormatter\bin\Debug\net8.0-windows\APFSFormatter.exe -Verb RunAs
+```
+
+If you prefer using the VS Code integrated terminal, close VS Code and reopen it with **Run as administrator**. Any terminal started inside VS Code will then inherit Administrator privileges.
+
+### Troubleshooting
+
+If formatting fails with a DiskPart message like:
+
+```text
+The disk you specified is not MBR formatted.
+Please select an empty MBR disk to convert.
+```
+
+that means the USB drive was already using GPT metadata and an older build of this tool treated that as a hard failure. Rebuild or rerun with the latest version of the project so the GPT conversion step can continue correctly.
 
 ### Example Session
 
@@ -52,7 +101,6 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 
   Enter the number of the drive to format (or 0 to exit): 1
   Enter volume label (default: APFS):
-  Create a dummy text file on the formatted drive if Windows can access it? (y/N): y
 
 ⚠ WARNING: This will PERMANENTLY ERASE all data on the selected drive!
   Drive: Disk 1: SanDisk Ultra (14.9 GB) [E:]
@@ -80,9 +128,6 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
     * Windows cannot natively read or write APFS drives.
       Use a third-party driver (e.g., Paragon APFS) for
       Windows access, or use the drive exclusively on Mac.
- 
-  → Attempting to create dummy.txt... Failed.
-⚠ Windows did not expose a writable drive letter for the formatted APFS volume. Connect the drive to macOS or install an APFS driver for Windows to create files on it.
 ```
 
 ## Building from Source
@@ -126,7 +171,6 @@ When the drive is plugged into a Mac, macOS will recognize the APFS container an
 
 - **Data loss**: Formatting permanently erases all data. Make sure to back up important files first.
 - **Windows APFS support**: Windows does not natively support APFS. To access an APFS drive on Windows, use a third-party driver such as [Paragon APFS for Windows](https://www.paragon-software.com/home/apfs-windows/).
-- **Dummy file creation**: The app can attempt to create `dummy.txt` after formatting, but this only works if Windows can mount the formatted drive with a writable drive letter. On a standard Windows installation, APFS volumes usually require a third-party driver.
 - **Administrator required**: Raw disk access requires elevated privileges.
 
 ## License

@@ -9,6 +9,8 @@ namespace APFSFormatter.Services;
 /// </summary>
 public class DiskPartService
 {
+    private const string ApfsPartitionTypeGuid = "7C3457EF-0000-11AA-AA11-00306543ECAC";
+
     /// <summary>
     /// Runs a diskpart script and returns the combined output.
     /// </summary>
@@ -67,27 +69,73 @@ public class DiskPartService
         // Sanitize label: max 11 chars for FAT32 compatibility, no spaces for diskpart
         string safeLabel = SanitizeLabel(volumeLabel);
 
-        // diskpart script to:
-        // 1. Select the target disk
-        // 2. Clean all existing partition data
-        // 3. Convert to GPT (required for APFS)
-        // 4. Create a primary partition spanning the full disk
-        // 5. Set the partition type GUID to the APFS container GUID
-        var script = new[]
-        {
-            $"select disk {diskIndex}",
-            "clean",
-            "convert gpt",
-            "create partition primary",
-            // APFS Container partition type GUID (Apple_APFS)
-            "set id=7C3457EF-0000-11AA-AA11-00306543ECAC",
-            "exit"
-        };
+        var output = new StringBuilder();
 
-        string output;
         try
         {
-            output = RunScript(script);
+            string cleanOutput = RunScript(new[]
+            {
+                $"select disk {diskIndex}",
+                "clean",
+                "exit"
+            });
+
+            AppendSection(output, "Clean output", cleanOutput);
+
+            bool cleaned = cleanOutput.Contains(
+                "DiskPart succeeded in cleaning the disk",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!cleaned)
+            {
+                return FormatResult.Fail(
+                    "diskpart did not successfully clean the disk.",
+                    output.ToString());
+            }
+
+            string convertOutput = RunScript(new[]
+            {
+                $"select disk {diskIndex}",
+                "convert gpt",
+                "exit"
+            });
+
+            AppendSection(output, "Convert output", convertOutput);
+
+            bool converted = convertOutput.Contains(
+                "DiskPart successfully converted the selected disk to GPT format",
+                StringComparison.OrdinalIgnoreCase);
+            bool alreadyGpt = convertOutput.Contains(
+                "is not MBR formatted",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!converted && !alreadyGpt)
+            {
+                return FormatResult.Fail(
+                    "diskpart could not convert the disk to GPT.",
+                    output.ToString());
+            }
+
+            string partitionOutput = RunScript(new[]
+            {
+                $"select disk {diskIndex}",
+                "create partition primary",
+                $"set id={ApfsPartitionTypeGuid}",
+                "exit"
+            });
+
+            AppendSection(output, "Partition output", partitionOutput);
+
+            bool partitionCreated = partitionOutput.Contains(
+                "DiskPart succeeded in creating the specified partition",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!partitionCreated)
+            {
+                return FormatResult.Fail(
+                    "diskpart did not create the APFS partition successfully.",
+                    output.ToString());
+            }
         }
         catch (Exception ex)
         {
@@ -95,34 +143,32 @@ public class DiskPartService
         }
 
         // Check for common error indicators in diskpart output
-        if (output.Contains("Virtual Disk Service error", StringComparison.OrdinalIgnoreCase) ||
-            output.Contains("There is no disk selected", StringComparison.OrdinalIgnoreCase) ||
-            output.Contains("is not recognized", StringComparison.OrdinalIgnoreCase))
+        string combinedOutput = output.ToString();
+        if (combinedOutput.Contains("Virtual Disk Service error", StringComparison.OrdinalIgnoreCase) ||
+            combinedOutput.Contains("There is no disk selected", StringComparison.OrdinalIgnoreCase) ||
+            combinedOutput.Contains("is not recognized", StringComparison.OrdinalIgnoreCase))
         {
             return FormatResult.Fail(
                 "diskpart reported an error during formatting. Ensure the disk is accessible and try again.",
-                output);
-        }
-
-        // Verify key expected output phrases indicating success
-        bool cleaned = output.Contains("DiskPart succeeded in cleaning the disk",
-            StringComparison.OrdinalIgnoreCase);
-        bool converted = output.Contains("DiskPart successfully converted the selected disk to GPT format",
-            StringComparison.OrdinalIgnoreCase);
-        bool partitionCreated = output.Contains("DiskPart succeeded in creating the specified partition",
-            StringComparison.OrdinalIgnoreCase);
-
-        if (!cleaned || !converted || !partitionCreated)
-        {
-            return FormatResult.Fail(
-                "diskpart did not complete all required steps successfully. Check the output for details.",
-                output);
+                combinedOutput);
         }
 
         return FormatResult.Ok(
             $"Disk {diskIndex} has been successfully prepared for APFS. " +
             "The partition has been created with the Apple APFS partition type GUID.",
-            output);
+            combinedOutput);
+    }
+
+    private static void AppendSection(StringBuilder builder, string title, string sectionOutput)
+    {
+        if (builder.Length > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+        }
+
+        builder.AppendLine($"{title}:");
+        builder.AppendLine(sectionOutput.TrimEnd());
     }
 
     private static string SanitizeLabel(string label)

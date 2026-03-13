@@ -142,15 +142,4 @@ public static class ConsoleHelper
         string? label = Console.ReadLine()?.Trim();
         return string.IsNullOrEmpty(label) ? "APFS" : label;
     }
-
-    /// <summary>
-    /// Prompts the user whether to create a dummy text file after formatting.
-    /// </summary>
-    public static bool PromptCreateDummyFile()
-    {
-        Console.Write("  Create a dummy text file on the formatted drive if Windows can access it? (y/N): ");
-        string? input = Console.ReadLine()?.Trim();
-        return string.Equals(input, "y", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(input, "yes", StringComparison.OrdinalIgnoreCase);
-    }
 }
