@@ -1,8 +1,8 @@
-using APFSFormatter.Models;
-using APFSFormatter.Services;
+using HFSPlusBrowser.Models;
+using HFSPlusBrowser.Services;
 using Xunit;
 
-namespace APFSFormatter.Tests;
+namespace HFSPlusBrowser.Tests;
 
 public class DriveBrowseServiceTests
 {
@@ -158,6 +158,86 @@ public class DriveBrowseServiceTests
         Assert.Contains("overflow extents", copyResult.Message);
     }
 
+    [Fact]
+    public void CopyFileFromTempToRoot_UsesRawVolumeBrowser_WhenBrowseSourceIsHfsPlus()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "hfsplusbrowser-temp-import-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string sourcePath = Path.Combine(tempDirectory, "ReadMe.txt");
+        File.WriteAllText(sourcePath, "updated from temp");
+
+        try
+        {
+            var rawBrowser = new FakeRawVolumeBrowser(
+                BrowseResult.Ok(
+                    "Parsed HFS+ root.",
+                    BrowseSourceKind.HfsPlusRaw,
+                    "R:",
+                    "R:\\",
+                    [],
+                    [new BrowseFileEntry { Name = "ReadMe.txt", CanCopy = true }]),
+                copyToRootResult: FileCopyResult.Ok("Imported file.", @"R:\ReadMe.txt"));
+
+            var service = new DriveBrowseService(
+                new FakeDriveLetterResolver("R:"),
+                new ThrowingFileSystemBrowser(new IOException("Unrecognized file system")),
+                rawBrowser,
+                maxRetryAttempts: 1,
+                retryDelayMilliseconds: 0,
+                tempDirectory: tempDirectory);
+
+            BrowseResult browseResult = service.BrowseRoot(1);
+            FileCopyResult copyResult = service.CopyFileFromTempToRoot(browseResult, 0);
+
+            Assert.True(copyResult.Success);
+            Assert.Equal(sourcePath, rawBrowser.LastCopiedToRootSourcePath);
+            Assert.Equal("R:", rawBrowser.LastCopiedToRootDriveLetter);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+                Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetImportableTempFiles_FiltersToMatchingRootFiles_ForRawHfsPlus()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "hfsplusbrowser-temp-import-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        File.WriteAllText(Path.Combine(tempDirectory, "Nordea1.pdf"), "x");
+        string matchingPath = Path.Combine(tempDirectory, "ReadMe.txt");
+        File.WriteAllText(matchingPath, "updated from temp");
+
+        try
+        {
+            var service = new DriveBrowseService(
+                new FakeDriveLetterResolver("R:"),
+                new ThrowingFileSystemBrowser(new IOException("Unrecognized file system")),
+                new FakeRawVolumeBrowser(
+                    BrowseResult.Ok(
+                        "Parsed HFS+ root.",
+                        BrowseSourceKind.HfsPlusRaw,
+                        "R:",
+                        "R:\\",
+                        [],
+                        [new BrowseFileEntry { Name = "ReadMe.txt", CanCopy = true }])),
+                maxRetryAttempts: 1,
+                retryDelayMilliseconds: 0,
+                tempDirectory: tempDirectory);
+
+            BrowseResult browseResult = service.BrowseRoot(1);
+            IReadOnlyList<string> importableFiles = service.GetImportableTempFiles(browseResult);
+
+            Assert.Equal(["ReadMe.txt"], importableFiles);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+                Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
     private sealed class FakeDriveLetterResolver : IDriveLetterResolver
     {
         private readonly string _driveLetter;
@@ -206,15 +286,24 @@ public class DriveBrowseServiceTests
     {
         private readonly BrowseResult? _result;
         private readonly FileCopyResult? _copyResult;
+        private readonly FileCopyResult? _copyToRootResult;
 
         public string? LastCopiedFileName { get; private set; }
 
         public string? LastCopyDestinationDirectory { get; private set; }
 
-        public FakeRawVolumeBrowser(BrowseResult? result = null, FileCopyResult? copyResult = null)
+        public string? LastCopiedToRootSourcePath { get; private set; }
+
+        public string? LastCopiedToRootDriveLetter { get; private set; }
+
+        public FakeRawVolumeBrowser(
+            BrowseResult? result = null,
+            FileCopyResult? copyResult = null,
+            FileCopyResult? copyToRootResult = null)
         {
             _result = result;
             _copyResult = copyResult;
+            _copyToRootResult = copyToRootResult;
         }
 
         public BrowseResult? TryBrowseRoot(string driveLetter) => _result;
@@ -224,6 +313,13 @@ public class DriveBrowseServiceTests
             LastCopiedFileName = fileName;
             LastCopyDestinationDirectory = destinationDirectory;
             return _copyResult;
+        }
+
+        public FileCopyResult? TryCopyFileToRoot(string driveLetter, string sourceFilePath)
+        {
+            LastCopiedToRootDriveLetter = driveLetter;
+            LastCopiedToRootSourcePath = sourceFilePath;
+            return _copyToRootResult;
         }
     }
 }

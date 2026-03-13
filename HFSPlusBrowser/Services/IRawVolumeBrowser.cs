@@ -1,6 +1,6 @@
-using APFSFormatter.Models;
+using HFSPlusBrowser.Models;
 
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Attempts to browse a volume using raw read-only filesystem parsing.
@@ -11,4 +11,6 @@ public interface IRawVolumeBrowser
     BrowseResult? TryBrowseRoot(string driveLetter);
 
     FileCopyResult? TryCopyRootFile(string driveLetter, string fileName, string destinationDirectory);
+
+    FileCopyResult? TryCopyFileToRoot(string driveLetter, string sourceFilePath);
 }

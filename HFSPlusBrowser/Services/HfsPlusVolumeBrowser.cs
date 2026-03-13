@@ -1,7 +1,7 @@
 using System.Text;
-using APFSFormatter.Models;
+using HFSPlusBrowser.Models;
 
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 {
@@ -22,7 +22,7 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 
         try
         {
-            using var stream = OpenRawVolume(devicePath);
+            using var stream = OpenRawVolume(devicePath, FileAccess.Read);
             return TryBrowseRoot(stream, normalizedDriveLetter, normalizedDriveLetter + Path.DirectorySeparatorChar);
         }
         catch (UnauthorizedAccessException)
@@ -49,7 +49,7 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 
         try
         {
-            using var stream = OpenRawVolume(devicePath);
+            using var stream = OpenRawVolume(devicePath, FileAccess.Read);
             return TryCopyRootFile(stream, normalizedDriveLetter, fileName, destinationDirectory);
         }
         catch (UnauthorizedAccessException)
@@ -66,6 +66,33 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
         {
             return FileCopyResult.Fail(
                 $"The HFS+ metadata on '{normalizedDriveLetter}' could not be parsed safely for file copy. {ex.Message}");
+        }
+    }
+
+    public FileCopyResult? TryCopyFileToRoot(string driveLetter, string sourceFilePath)
+    {
+        string normalizedDriveLetter = NormalizeDriveLetter(driveLetter);
+        string devicePath = $"\\\\.\\{normalizedDriveLetter}";
+
+        try
+        {
+            using var stream = OpenRawVolume(devicePath, FileAccess.ReadWrite);
+            return TryCopyFileToRoot(stream, normalizedDriveLetter, sourceFilePath);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileCopyResult.Fail(
+                $"Raw HFS+ file import to '{normalizedDriveLetter}' requires Administrator privileges.");
+        }
+        catch (IOException ex)
+        {
+            return FileCopyResult.Fail(
+                $"The raw HFS+ volume '{normalizedDriveLetter}' could not be opened for file import. {ex.Message}");
+        }
+        catch (Exception ex) when (ex is IndexOutOfRangeException || ex is InvalidDataException)
+        {
+            return FileCopyResult.Fail(
+                $"The HFS+ metadata on '{normalizedDriveLetter}' could not be parsed safely for file import. {ex.Message}");
         }
     }
 
@@ -126,21 +153,7 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
         if (context is null)
             return null;
 
-        HfsPlusRootFileRecord? target = null;
-        EnumerateRootRecords(
-            stream,
-            context,
-            (name, recordType, fileRecord) =>
-            {
-                if (recordType == FileRecordType &&
-                    fileRecord is not null &&
-                    string.Equals(name, fileName, StringComparison.Ordinal))
-                {
-                    target = fileRecord;
-                }
-            },
-            stopWhen: () => target is not null);
-
+        HfsPlusRootFileRecord? target = FindRootFileRecord(stream, context, fileName);
         if (target is null)
         {
             return FileCopyResult.Fail(
@@ -164,8 +177,55 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
             destinationPath);
     }
 
-    private static FileStream OpenRawVolume(string devicePath) =>
-        new(devicePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: false);
+    public FileCopyResult? TryCopyFileToRoot(Stream stream, string driveLetter, string sourceFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+            return FileCopyResult.Fail("A source path in C:\\Temp is required.");
+
+        string sourceFileName = Path.GetFileName(sourceFilePath);
+        if (string.IsNullOrWhiteSpace(sourceFileName))
+            return FileCopyResult.Fail("The selected source file name is invalid.");
+
+        if (!File.Exists(sourceFilePath))
+            return FileCopyResult.Fail($"The source file '{sourceFilePath}' does not exist.");
+
+        VolumeContext? context = TryReadVolumeContext(stream);
+        if (context is null)
+            return null;
+
+        HfsPlusRootFileRecord? target = FindRootFileRecord(stream, context, sourceFileName);
+        if (target is null)
+        {
+            return FileCopyResult.Fail(
+                $"Raw HFS+ import currently overwrites an existing same-named root file only. '{sourceFileName}' was not found at the root of '{driveLetter}'.");
+        }
+
+        if (!target.CanOverwrite)
+        {
+            return FileCopyResult.Fail(
+                target.WriteUnavailableReason ?? $"The root file '{sourceFileName}' cannot be overwritten by this HFS+ writer.");
+        }
+
+        byte[] sourceBytes = File.ReadAllBytes(sourceFilePath);
+        ulong allocatedCapacity = target.GetAllocatedCapacity(context.VolumeHeader.BlockSize);
+        if ((ulong)sourceBytes.Length > allocatedCapacity)
+        {
+            return FileCopyResult.Fail(
+                $"The file '{sourceFileName}' needs {sourceBytes.Length} bytes, but the existing HFS+ root entry only has {allocatedCapacity} bytes available in its inline extents. Growing files or allocating new extents is not supported yet.");
+        }
+
+        WriteFileData(stream, context, target, sourceBytes);
+        WriteForkUInt64BE(stream, context.VolumeHeader, target.CatalogDataForkLogicalOffset, (ulong)sourceBytes.Length);
+        stream.Flush();
+
+        string destinationPath = $"{driveLetter}{Path.DirectorySeparatorChar}{sourceFileName}";
+        return FileCopyResult.Ok(
+            $"Copied '{sourceFileName}' from '{sourceFilePath}' to the HFS+ root of '{driveLetter}' by overwriting the existing root entry.",
+            destinationPath);
+    }
+
+    private static FileStream OpenRawVolume(string devicePath, FileAccess access) =>
+        new(devicePath, FileMode.Open, access, FileShare.ReadWrite, 4096, useAsync: false);
 
     private static VolumeContext? TryReadVolumeContext(Stream stream)
     {
@@ -180,6 +240,27 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
         return new VolumeContext(volumeHeader, catalogHeader);
     }
 
+    private static HfsPlusRootFileRecord? FindRootFileRecord(Stream stream, VolumeContext context, string fileName)
+    {
+        HfsPlusRootFileRecord? target = null;
+
+        EnumerateRootRecords(
+            stream,
+            context,
+            (name, recordType, fileRecord) =>
+            {
+                if (recordType == FileRecordType &&
+                    fileRecord is not null &&
+                    string.Equals(name, fileName, StringComparison.Ordinal))
+                {
+                    target = fileRecord;
+                }
+            },
+            stopWhen: () => target is not null);
+
+        return target;
+    }
+
     private static void EnumerateRootRecords(
         Stream stream,
         VolumeContext context,
@@ -191,11 +272,12 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 
         while (currentNode != 0 && safetyCounter < context.CatalogHeader.TotalNodes)
         {
+            ulong nodeLogicalOffset = (ulong)currentNode * context.CatalogHeader.NodeSize;
             byte[] node = ReadCatalogNode(stream, context.VolumeHeader, context.CatalogHeader.NodeSize, currentNode);
             if (node.Length < context.CatalogHeader.NodeSize)
                 break;
 
-            EnumerateLeafNode(node, visitor, stopWhen);
+            EnumerateLeafNode(node, nodeLogicalOffset, visitor, stopWhen);
             if (stopWhen?.Invoke() == true)
                 break;
 
@@ -206,6 +288,7 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 
     private static void EnumerateLeafNode(
         byte[] node,
+        ulong nodeLogicalOffset,
         Action<string, ushort, HfsPlusRootFileRecord?> visitor,
         Func<bool>? stopWhen)
     {
@@ -218,7 +301,7 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
             if (stopWhen?.Invoke() == true)
                 return;
 
-            if (!TryReadLeafRecord(node, recordIndex, out ReadOnlySpan<byte> record))
+            if (!TryReadLeafRecord(node, recordIndex, out ushort recordStart, out ReadOnlySpan<byte> record))
                 continue;
 
             if (!TryReadRecordKey(record, out uint parentId, out string name, out int dataOffset))
@@ -229,17 +312,17 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
 
             ushort recordType = ReadUInt16BE(record, dataOffset);
             HfsPlusRootFileRecord? fileRecord = recordType == FileRecordType
-                ? ParseRootFileRecord(name, record, dataOffset)
+                ? ParseRootFileRecord(name, record, dataOffset, nodeLogicalOffset, recordStart)
                 : null;
 
             visitor(name, recordType, fileRecord);
         }
     }
 
-    private static bool TryReadLeafRecord(byte[] node, int recordIndex, out ReadOnlySpan<byte> record)
+    private static bool TryReadLeafRecord(byte[] node, int recordIndex, out ushort recordStart, out ReadOnlySpan<byte> record)
     {
         ushort numRecords = ReadUInt16BE(node, 10);
-        ushort recordStart = ReadRecordOffset(node, recordIndex);
+        recordStart = ReadRecordOffset(node, recordIndex);
         ushort recordEnd = recordIndex == numRecords - 1
             ? ReadFreeSpaceOffset(node, numRecords)
             : ReadRecordOffset(node, recordIndex + 1);
@@ -282,7 +365,12 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
         return true;
     }
 
-    private static HfsPlusRootFileRecord? ParseRootFileRecord(string name, ReadOnlySpan<byte> record, int dataOffset)
+    private static HfsPlusRootFileRecord? ParseRootFileRecord(
+        string name,
+        ReadOnlySpan<byte> record,
+        int dataOffset,
+        ulong nodeLogicalOffset,
+        ushort recordStart)
     {
         const int dataForkOffset = 88;
         const int forkRecordLength = 80;
@@ -313,7 +401,19 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
             ? $"The file '{name}' uses overflow extents, which are not supported by this extractor yet."
             : null;
 
-        return new HfsPlusRootFileRecord(name, logicalSize, totalBlocks, extents, copyUnavailableReason);
+        string? writeUnavailableReason = totalBlocks > inlineBlocks
+            ? $"The file '{name}' uses overflow extents, which are not supported by this HFS+ writer yet."
+            : null;
+
+        ulong catalogDataForkLogicalOffset = nodeLogicalOffset + recordStart + (ulong)forkOffset;
+        return new HfsPlusRootFileRecord(
+            name,
+            logicalSize,
+            totalBlocks,
+            extents,
+            copyUnavailableReason,
+            writeUnavailableReason,
+            catalogDataForkLogicalOffset);
     }
 
     private static byte[] ReadFileData(Stream stream, VolumeContext context, HfsPlusRootFileRecord fileRecord)
@@ -382,6 +482,110 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
         }
 
         return buffer;
+    }
+
+    private static void WriteFileData(Stream stream, VolumeContext context, HfsPlusRootFileRecord fileRecord, ReadOnlySpan<byte> fileData)
+    {
+        int bytesWritten = 0;
+        int remainingBytes = fileData.Length;
+        int blockSize = (int)context.VolumeHeader.BlockSize;
+
+        foreach (ExtentDescriptor extent in fileRecord.Extents)
+        {
+            ulong extentBytes = (ulong)extent.BlockCount * context.VolumeHeader.BlockSize;
+            int bytesToWrite = (int)Math.Min((ulong)remainingBytes, extentBytes);
+            if (bytesToWrite == 0)
+                break;
+
+            ulong physicalOffset = (ulong)extent.StartBlock * context.VolumeHeader.BlockSize;
+            WritePhysicalBytes(stream, physicalOffset, fileData.Slice(bytesWritten, bytesToWrite), blockSize);
+            bytesWritten += bytesToWrite;
+            remainingBytes -= bytesToWrite;
+        }
+
+        if (remainingBytes != 0)
+        {
+            throw new InvalidDataException(
+                $"The HFS+ data fork for '{fileRecord.Name}' does not have enough inline extent capacity for the new file content.");
+        }
+    }
+
+    private static void WriteForkUInt64BE(Stream stream, VolumeHeaderInfo volumeHeader, ulong forkOffset, ulong value)
+    {
+        byte[] bytes = new byte[8];
+        WriteUInt64BE(bytes, 0, value);
+        WriteForkBytes(stream, volumeHeader, forkOffset, bytes);
+    }
+
+    private static void WriteForkBytes(Stream stream, VolumeHeaderInfo volumeHeader, ulong forkOffset, ReadOnlySpan<byte> data)
+    {
+        int bytesWritten = 0;
+        ulong remainingOffset = forkOffset;
+        int remainingBytes = data.Length;
+        int blockSize = (int)volumeHeader.BlockSize;
+
+        foreach (ExtentDescriptor extent in volumeHeader.CatalogExtents)
+        {
+            ulong extentBytes = (ulong)extent.BlockCount * volumeHeader.BlockSize;
+            if (remainingOffset >= extentBytes)
+            {
+                remainingOffset -= extentBytes;
+                continue;
+            }
+
+            ulong physicalOffset = ((ulong)extent.StartBlock * volumeHeader.BlockSize) + remainingOffset;
+            int bytesToWrite = (int)Math.Min((ulong)remainingBytes, extentBytes - remainingOffset);
+            WritePhysicalBytes(stream, physicalOffset, data.Slice(bytesWritten, bytesToWrite), blockSize);
+            bytesWritten += bytesToWrite;
+            remainingBytes -= bytesToWrite;
+            remainingOffset = 0;
+
+            if (remainingBytes == 0)
+                break;
+        }
+
+        if (remainingBytes != 0)
+        {
+            throw new InvalidDataException("The HFS+ catalog fork ended before the update could be written.");
+        }
+    }
+
+    private static void WritePhysicalBytes(Stream stream, ulong physicalOffset, ReadOnlySpan<byte> data, int blockSize)
+    {
+        if (data.Length == 0)
+            return;
+
+        if (blockSize <= 0)
+        {
+            stream.Seek((long)physicalOffset, SeekOrigin.Begin);
+            stream.Write(data);
+            return;
+        }
+
+        ulong alignedOffset = physicalOffset - (physicalOffset % (ulong)blockSize);
+        int prefixLength = (int)(physicalOffset - alignedOffset);
+        int totalLength = prefixLength + data.Length;
+        int alignedLength = totalLength % blockSize == 0
+            ? totalLength
+            : ((totalLength / blockSize) + 1) * blockSize;
+
+        if (prefixLength == 0 && alignedLength == data.Length)
+        {
+            stream.Seek((long)physicalOffset, SeekOrigin.Begin);
+            stream.Write(data);
+            return;
+        }
+
+        byte[] buffer = new byte[alignedLength];
+        stream.Seek((long)alignedOffset, SeekOrigin.Begin);
+        int read = stream.Read(buffer, 0, buffer.Length);
+        if (read < buffer.Length)
+            Array.Clear(buffer, read, buffer.Length - read);
+
+        data.CopyTo(buffer.AsSpan(prefixLength));
+
+        stream.Seek((long)alignedOffset, SeekOrigin.Begin);
+        stream.Write(buffer, 0, buffer.Length);
     }
 
     private static VolumeHeaderInfo? ReadVolumeHeader(Stream stream)
@@ -532,12 +736,39 @@ public class HfsPlusVolumeBrowser : IRawVolumeBrowser
     private static ulong ReadUInt64BE(ReadOnlySpan<byte> buffer, int offset) =>
         ((ulong)ReadUInt32BE(buffer, offset) << 32) | ReadUInt32BE(buffer, offset + 4);
 
+    private static void WriteUInt32BE(byte[] buffer, int offset, uint value)
+    {
+        buffer[offset] = (byte)(value >> 24);
+        buffer[offset + 1] = (byte)(value >> 16);
+        buffer[offset + 2] = (byte)(value >> 8);
+        buffer[offset + 3] = (byte)value;
+    }
+
+    private static void WriteUInt64BE(byte[] buffer, int offset, ulong value)
+    {
+        WriteUInt32BE(buffer, offset, (uint)(value >> 32));
+        WriteUInt32BE(buffer, offset + 4, (uint)value);
+    }
+
     private sealed record VolumeHeaderInfo(uint BlockSize, ulong CatalogLogicalSize, uint CatalogTotalBlocks, List<ExtentDescriptor> CatalogExtents);
     private sealed record CatalogHeaderInfo(uint FirstLeafNode, ushort NodeSize, uint TotalNodes);
     private sealed record ExtentDescriptor(uint StartBlock, uint BlockCount);
     private sealed record VolumeContext(VolumeHeaderInfo VolumeHeader, CatalogHeaderInfo CatalogHeader);
-    private sealed record HfsPlusRootFileRecord(string Name, ulong LogicalSize, uint TotalBlocks, List<ExtentDescriptor> Extents, string? CopyUnavailableReason)
+
+    private sealed record HfsPlusRootFileRecord(
+        string Name,
+        ulong LogicalSize,
+        uint TotalBlocks,
+        List<ExtentDescriptor> Extents,
+        string? CopyUnavailableReason,
+        string? WriteUnavailableReason,
+        ulong CatalogDataForkLogicalOffset)
     {
         public bool IsCopyable => string.IsNullOrEmpty(CopyUnavailableReason);
+
+        public bool CanOverwrite => string.IsNullOrEmpty(WriteUnavailableReason);
+
+        public ulong GetAllocatedCapacity(uint blockSize) =>
+            Extents.Aggregate(0UL, (total, extent) => total + ((ulong)extent.BlockCount * blockSize));
     }
 }

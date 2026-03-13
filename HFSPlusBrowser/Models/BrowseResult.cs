@@ -1,4 +1,4 @@
-namespace APFSFormatter.Models;
+namespace HFSPlusBrowser.Models;
 
 /// <summary>
 /// Result of attempting to browse the root of a mounted drive.

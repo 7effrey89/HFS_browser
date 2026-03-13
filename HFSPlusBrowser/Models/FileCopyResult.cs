@@ -1,4 +1,4 @@
-namespace APFSFormatter.Models;
+namespace HFSPlusBrowser.Models;
 
 public class FileCopyResult
 {

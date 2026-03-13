@@ -1,4 +1,4 @@
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Resolves a Windows drive letter for a physical disk index.

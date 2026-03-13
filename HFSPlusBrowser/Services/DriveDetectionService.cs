@@ -1,7 +1,7 @@
 using System.Management;
-using APFSFormatter.Models;
+using HFSPlusBrowser.Models;
 
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Detects removable USB drives connected to the system using WMI.

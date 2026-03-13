@@ -1,6 +1,6 @@
-using APFSFormatter.Models;
+using HFSPlusBrowser.Models;
 
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Attempts to browse the root of a mounted removable drive.
@@ -17,6 +17,7 @@ public class DriveBrowseService
     private readonly IRawVolumeBrowser _rawVolumeBrowser;
     private readonly int _maxRetryAttempts;
     private readonly int _retryDelayMilliseconds;
+    private readonly string _tempDirectory;
 
     public DriveBrowseService(IDriveLetterResolver driveLetterResolver)
         : this(
@@ -33,13 +34,51 @@ public class DriveBrowseService
         IFileSystemBrowser fileSystemBrowser,
         IRawVolumeBrowser rawVolumeBrowser,
         int maxRetryAttempts,
-        int retryDelayMilliseconds)
+        int retryDelayMilliseconds,
+        string? tempDirectory = null)
     {
         _driveLetterResolver = driveLetterResolver;
         _fileSystemBrowser = fileSystemBrowser;
         _rawVolumeBrowser = rawVolumeBrowser;
         _maxRetryAttempts = Math.Max(1, maxRetryAttempts);
         _retryDelayMilliseconds = Math.Max(0, retryDelayMilliseconds);
+        _tempDirectory = string.IsNullOrWhiteSpace(tempDirectory)
+            ? DefaultCopyDirectory
+            : tempDirectory;
+    }
+
+    public IReadOnlyList<string> GetTempFiles()
+    {
+        if (!Directory.Exists(_tempDirectory))
+            return Array.Empty<string>();
+
+        return Directory
+            .EnumerateFiles(_tempDirectory)
+            .Select(Path.GetFileName)
+            .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
+            .OrderBy(fileName => fileName, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxEntriesPerSection)
+            .Cast<string>()
+            .ToArray();
+    }
+
+    public IReadOnlyList<string> GetImportableTempFiles(BrowseResult browseResult)
+    {
+        IReadOnlyList<string> tempFiles = GetTempFiles();
+        if (!browseResult.Success || tempFiles.Count == 0)
+            return Array.Empty<string>();
+
+        if (browseResult.SourceKind != BrowseSourceKind.HfsPlusRaw)
+            return tempFiles;
+
+        var overwritableRootFiles = browseResult.FileEntries
+            .Where(file => file.CanCopy)
+            .Select(file => file.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return tempFiles
+            .Where(fileName => overwritableRootFiles.Contains(fileName))
+            .ToArray();
     }
 
     public BrowseResult BrowseRoot(int diskIndex)
@@ -135,6 +174,55 @@ public class DriveBrowseService
         {
             return FileCopyResult.Fail(
                 $"Failed to copy '{fileEntry.Name}' to '{destinationPath}'. {ex.Message}");
+        }
+    }
+
+    public FileCopyResult CopyFileFromTempToRoot(BrowseResult browseResult, int tempFileIndex)
+    {
+        if (!browseResult.Success)
+            return FileCopyResult.Fail("Copy is only available after a successful browse operation.");
+
+        IReadOnlyList<string> tempFiles = GetImportableTempFiles(browseResult);
+        if (tempFileIndex < 0 || tempFileIndex >= tempFiles.Count)
+            return FileCopyResult.Fail("The selected C:\\Temp file index is out of range.");
+
+        string fileName = tempFiles[tempFileIndex];
+        string sourcePath = Path.Combine(_tempDirectory, fileName);
+
+        if (!File.Exists(sourcePath))
+        {
+            return FileCopyResult.Fail(
+                $"The selected source file '{sourcePath}' no longer exists.");
+        }
+
+        if (browseResult.SourceKind == BrowseSourceKind.HfsPlusRaw)
+        {
+            FileCopyResult? rawCopyResult = _rawVolumeBrowser.TryCopyFileToRoot(
+                browseResult.DriveLetter,
+                sourcePath);
+
+            return rawCopyResult ?? FileCopyResult.Fail("The raw browser does not support writing files to this volume.");
+        }
+
+        if (string.IsNullOrWhiteSpace(browseResult.RootPath))
+            return FileCopyResult.Fail("The browsed volume does not expose a usable root path.");
+
+        string destinationPath = Path.Combine(browseResult.RootPath, fileName);
+
+        try
+        {
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+            return FileCopyResult.Ok(
+                $"Copied '{fileName}' from '{sourcePath}' to '{destinationPath}'.",
+                destinationPath);
+        }
+        catch (Exception ex) when (
+            ex is IOException ||
+            ex is UnauthorizedAccessException ||
+            ex is NotSupportedException)
+        {
+            return FileCopyResult.Fail(
+                $"Failed to copy '{fileName}' from '{sourcePath}' to '{destinationPath}'. {ex.Message}");
         }
     }
 

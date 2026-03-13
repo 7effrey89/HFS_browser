@@ -1,4 +1,4 @@
-namespace APFSFormatter.Models;
+namespace HFSPlusBrowser.Models;
 
 /// <summary>
 /// Represents a removable USB drive detected on the system.

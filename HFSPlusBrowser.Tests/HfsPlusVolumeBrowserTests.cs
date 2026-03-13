@@ -1,9 +1,9 @@
 using System.Text;
-using APFSFormatter.Models;
-using APFSFormatter.Services;
+using HFSPlusBrowser.Models;
+using HFSPlusBrowser.Services;
 using Xunit;
 
-namespace APFSFormatter.Tests;
+namespace HFSPlusBrowser.Tests;
 
 public class HfsPlusVolumeBrowserTests
 {
@@ -42,7 +42,7 @@ public class HfsPlusVolumeBrowserTests
         byte[] image = BuildSyntheticHfsPlusImage();
         using var stream = new MemoryStream(image, writable: false);
 
-        string destinationDirectory = Path.Combine(Path.GetTempPath(), "apfsformatter-hfs-tests", Guid.NewGuid().ToString("N"));
+        string destinationDirectory = Path.Combine(Path.GetTempPath(), "hfsplusbrowser-hfs-tests", Guid.NewGuid().ToString("N"));
         try
         {
             var browser = new HfsPlusVolumeBrowser();
@@ -58,6 +58,40 @@ public class HfsPlusVolumeBrowserTests
         {
             if (Directory.Exists(destinationDirectory))
                 Directory.Delete(destinationDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryCopyFileToRoot_OverwritesSyntheticRootFile()
+    {
+        byte[] image = BuildSyntheticHfsPlusImage();
+        using var stream = new MemoryStream(image, writable: true);
+
+        string workingDirectory = Path.Combine(Path.GetTempPath(), "hfsplusbrowser-hfs-write-tests", Guid.NewGuid().ToString("N"));
+        string sourcePath = Path.Combine(workingDirectory, "ReadMe.txt");
+        string destinationDirectory = Path.Combine(workingDirectory, "out");
+
+        Directory.CreateDirectory(workingDirectory);
+        File.WriteAllText(sourcePath, "updated from temp", Encoding.ASCII);
+
+        try
+        {
+            var browser = new HfsPlusVolumeBrowser();
+
+            FileCopyResult? writeResult = browser.TryCopyFileToRoot(stream, "R:", sourcePath);
+            Assert.NotNull(writeResult);
+            Assert.True(writeResult!.Success);
+
+            FileCopyResult? readBackResult = browser.TryCopyRootFile(stream, "R:", "ReadMe.txt", destinationDirectory);
+            Assert.NotNull(readBackResult);
+            Assert.True(readBackResult!.Success);
+            Assert.NotNull(readBackResult.DestinationPath);
+            Assert.Equal("updated from temp", File.ReadAllText(readBackResult.DestinationPath));
+        }
+        finally
+        {
+            if (Directory.Exists(workingDirectory))
+                Directory.Delete(workingDirectory, recursive: true);
         }
     }
 

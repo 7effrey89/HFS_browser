@@ -1,25 +1,19 @@
-using APFSFormatter.Models;
+using HFSPlusBrowser.Models;
 
-namespace APFSFormatter.Helpers;
+namespace HFSPlusBrowser.Helpers;
 
 /// <summary>
 /// Provides colored console output helpers for a consistent UI.
 /// </summary>
 public static class ConsoleHelper
 {
-    public enum OperationMode
-    {
-        Browse = 1,
-        Format = 2
-    }
-
     public static void WriteHeader()
     {
         Console.Clear();
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("╔══════════════════════════════════════════════════════╗");
-        Console.WriteLine("║           APFS USB Formatter for Windows             ║");
-        Console.WriteLine("║     Format your USB drive with Apple APFS format     ║");
+        Console.WriteLine("║             HFS+ USB Browser for Windows             ║");
+        Console.WriteLine("║      Browse and copy files on Apple HFS+ drives      ║");
         Console.WriteLine("╚══════════════════════════════════════════════════════╝");
         Console.ResetColor();
         Console.WriteLine();
@@ -110,52 +104,6 @@ public static class ConsoleHelper
         Console.ResetColor();
     }
 
-    public static OperationMode? PromptOperationMode()
-    {
-        WriteInfo("  Choose an action:");
-        WriteInfo("    [1] Browse a USB drive");
-        WriteInfo("    [2] Format a USB drive as APFS");
-        Console.WriteLine();
-
-        while (true)
-        {
-            Console.Write("  Enter your choice (1-2, or 0 to exit): ");
-            string? input = Console.ReadLine()?.Trim();
-
-            if (input == "0" || string.IsNullOrWhiteSpace(input))
-                return null;
-
-            if (input == "1")
-                return OperationMode.Browse;
-
-            if (input == "2")
-                return OperationMode.Format;
-
-            WriteWarning("Invalid selection. Please enter 1, 2, or 0 to exit.");
-        }
-    }
-
-    /// <summary>
-    /// Prompts the user to confirm a destructive operation by typing the exact drive label.
-    /// </summary>
-    public static bool ConfirmDestructiveAction(UsbDriveInfo drive)
-    {
-        Console.WriteLine();
-        WriteWarning("WARNING: This will PERMANENTLY ERASE all data on the selected drive!");
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"  Drive: {drive}");
-        Console.ResetColor();
-        Console.WriteLine();
-        Console.Write("  Type ");
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write("YES");
-        Console.ResetColor();
-        Console.Write(" to confirm and proceed: ");
-
-        string? input = Console.ReadLine();
-        return string.Equals(input?.Trim(), "YES", StringComparison.Ordinal);
-    }
-
     /// <summary>
     /// Prompts the user to select a drive from the list.
     /// Returns the selected drive, or null if the user cancels.
@@ -177,20 +125,17 @@ public static class ConsoleHelper
         }
     }
 
-    /// <summary>
-    /// Prompts the user to enter an optional volume label.
-    /// Returns "APFS" if the user presses Enter without typing anything.
-    /// </summary>
-    public static string PromptVolumeLabel()
-    {
-        Console.Write("  Enter volume label (default: APFS): ");
-        string? label = Console.ReadLine()?.Trim();
-        return string.IsNullOrEmpty(label) ? "APFS" : label;
-    }
-
     public static bool PromptCopyFromBrowseResult()
     {
         Console.Write("  Copy one of the listed files to C:\\Temp? (y/N): ");
+        string? input = Console.ReadLine()?.Trim();
+        return string.Equals(input, "y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(input, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool PromptCopyFromTempToBrowseRoot()
+    {
+        Console.Write("  Copy a file from C:\\Temp to this drive root? (y/N): ");
         string? input = Console.ReadLine()?.Trim();
         return string.Equals(input, "y", StringComparison.OrdinalIgnoreCase)
             || string.Equals(input, "yes", StringComparison.OrdinalIgnoreCase);
@@ -210,6 +155,23 @@ public static class ConsoleHelper
                 return choice - 1;
 
             WriteWarning($"Invalid selection. Please enter a number between 1 and {files.Count}.");
+        }
+    }
+
+    public static int? PromptNamedSelection(IReadOnlyList<string> items, string prompt)
+    {
+        while (true)
+        {
+            Console.Write($"  Enter the number of the {prompt} (or 0 to cancel): ");
+            string? input = Console.ReadLine()?.Trim();
+
+            if (input == "0" || string.IsNullOrWhiteSpace(input))
+                return null;
+
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= items.Count)
+                return choice - 1;
+
+            WriteWarning($"Invalid selection. Please enter a number between 1 and {items.Count}.");
         }
     }
 }

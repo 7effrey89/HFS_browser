@@ -5,10 +5,10 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>APFSFormatter</AssemblyName>
-    <RootNamespace>APFSFormatter</RootNamespace>
-    <Description>Windows console application to format USB drives with Apple APFS file system</Description>
-    <Authors>APFS USB Formatter</Authors>
+    <AssemblyName>HFSPlusBrowser</AssemblyName>
+    <RootNamespace>HFSPlusBrowser</RootNamespace>
+    <Description>Windows console application to browse and copy files on Apple HFS+ USB drives</Description>
+    <Authors>HFS+ USB Browser</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 

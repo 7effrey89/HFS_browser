@@ -1,4 +1,4 @@
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Uses System.IO APIs to enumerate a mounted Windows filesystem path.

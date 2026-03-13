@@ -1,4 +1,4 @@
-namespace APFSFormatter.Services;
+namespace HFSPlusBrowser.Services;
 
 /// <summary>
 /// Enumerates files and directories for a mounted filesystem path.

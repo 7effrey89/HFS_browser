@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\APFSFormatter\APFSFormatter.csproj" />
+    <ProjectReference Include="..\HFSPlusBrowser\HFSPlusBrowser.csproj" />
   </ItemGroup>
 
 </Project>

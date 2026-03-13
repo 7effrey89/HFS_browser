@@ -2,9 +2,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "APFSFormatter", "APFSFormatter\APFSFormatter.csproj", "{99D8EDC8-B3CF-769F-C0ED-A4C367C8D033}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HFSPlusBrowser", "HFSPlusBrowser\HFSPlusBrowser.csproj", "{99D8EDC8-B3CF-769F-C0ED-A4C367C8D033}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "APFSFormatter.Tests", "APFSFormatter.Tests\APFSFormatter.Tests.csproj", "{210E271B-4D94-40F0-8606-C8D4F1717EA8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HFSPlusBrowser.Tests", "HFSPlusBrowser.Tests\HFSPlusBrowser.Tests.csproj", "{210E271B-4D94-40F0-8606-C8D4F1717EA8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
