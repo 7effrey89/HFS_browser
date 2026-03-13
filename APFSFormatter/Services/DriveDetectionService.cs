@@ -51,6 +51,16 @@ public class DriveDetectionService
     }
 
     /// <summary>
+    /// Looks up the current drive letter for a removable disk by its disk index.
+    /// Returns an empty string when Windows does not expose a logical drive letter.
+    /// </summary>
+    public string GetDriveLetterByDiskIndex(int diskIndex)
+    {
+        UsbDriveInfo? drive = GetRemovableDrives().FirstOrDefault(d => d.DiskIndex == diskIndex);
+        return drive?.DriveLetter ?? string.Empty;
+    }
+
+    /// <summary>
     /// Resolves the Windows drive letter (e.g., "E:") for a given physical disk device ID.
     /// </summary>
     private static string GetDriveLetterForDisk(string deviceId)

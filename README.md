@@ -7,6 +7,7 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 - **Detects all removable USB drives** connected to the system using WMI
 - **Interactive drive selection** with a numbered menu
 - **Customizable volume label** (default: `APFS`)
+- **Optional dummy file creation** — can attempt to create `dummy.txt` after formatting when Windows exposes a writable drive letter
 - **Safety confirmation** — requires typing `YES` before any data is erased
 - **Full APFS preparation in two steps**:
   1. Cleans the drive and creates a GPT partition with the Apple APFS partition type GUID (`7C3457EF-0000-11AA-AA11-00306543ECAC`) using Windows `diskpart`
@@ -30,6 +31,7 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 4. Follow the on-screen prompts:
    - Select your USB drive by number
    - Enter a volume label (or press Enter for the default `APFS`)
+   - Choose whether to attempt creating `dummy.txt` after formatting
    - Type `YES` to confirm formatting (all existing data will be erased)
 
 ### Example Session
@@ -50,6 +52,7 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
 
   Enter the number of the drive to format (or 0 to exit): 1
   Enter volume label (default: APFS):
+  Create a dummy text file on the formatted drive if Windows can access it? (y/N): y
 
 ⚠ WARNING: This will PERMANENTLY ERASE all data on the selected drive!
   Drive: Disk 1: SanDisk Ultra (14.9 GB) [E:]
@@ -77,6 +80,9 @@ A Windows C# console application that formats a USB drive with the **Apple APFS 
     * Windows cannot natively read or write APFS drives.
       Use a third-party driver (e.g., Paragon APFS) for
       Windows access, or use the drive exclusively on Mac.
+ 
+  → Attempting to create dummy.txt... Failed.
+⚠ Windows did not expose a writable drive letter for the formatted APFS volume. Connect the drive to macOS or install an APFS driver for Windows to create files on it.
 ```
 
 ## Building from Source
@@ -120,6 +126,7 @@ When the drive is plugged into a Mac, macOS will recognize the APFS container an
 
 - **Data loss**: Formatting permanently erases all data. Make sure to back up important files first.
 - **Windows APFS support**: Windows does not natively support APFS. To access an APFS drive on Windows, use a third-party driver such as [Paragon APFS for Windows](https://www.paragon-software.com/home/apfs-windows/).
+- **Dummy file creation**: The app can attempt to create `dummy.txt` after formatting, but this only works if Windows can mount the formatted drive with a writable drive letter. On a standard Windows installation, APFS volumes usually require a third-party driver.
 - **Administrator required**: Raw disk access requires elevated privileges.
 
 ## License
