@@ -1,0 +1,26 @@
+# Build output
+bin/
+obj/
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.userosscache
+*.sln.docstates
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Publish output
+publish/
